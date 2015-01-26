@@ -100,7 +100,7 @@ def record():
 
     #pdb.set_trace()
     #get the timestamp for the observations
-    timestamp = time.time()
+    timestamp = time.time() * 1000
     str_timestamp = str(timestamp)
     tokens = str_timestamp.split('.')
     timestamp = tokens[0]
@@ -192,7 +192,7 @@ def record():
     		client = ThriftHive.Client(protocol)
     		transport.open()
 		#pdb.set_trace()
-    		query = 'create external table ' + name_table_hive + " (time int, observed_property string) row format delimited fields terminated by ',' location '/user/gioakbombaci/observations/" + dir_on_cosmos + "'"
+    		query = 'create external table ' + name_table_hive + " (time string, observed_property string) row format delimited fields terminated by ',' location '/user/gioakbombaci/observations/" + dir_on_cosmos + "'"
     		client.execute(query)
     		transport.close()
 	except Thrift.TException, tx:
