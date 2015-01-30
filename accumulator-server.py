@@ -10,8 +10,8 @@ import signal
 import json
 import pdb
 import time
-
-
+import requests
+import subprocess
 
 from hive_service import ThriftHive
 from hive_service.ttypes import HiveServerException
@@ -32,6 +32,7 @@ server_url = '/accumulate'
 verbose = 0
 created_table = 'no'
 list_sub_id = {}
+list_resource_id = {}
 
 # Arguments from command line
 if len(argv) > 2:
@@ -100,8 +101,10 @@ def record():
 
     #pdb.set_trace()
     #get the timestamp for the observations
-    timestamp = time.time() * 1000
-    str_timestamp = str(timestamp)
+    timestamp = time.time()*1000
+    
+    int_timestamp = int(timestamp)
+    str_timestamp = str(int_timestamp)
     tokens = str_timestamp.split('.')
     timestamp = tokens[0]
 
@@ -151,8 +154,15 @@ def record():
     print att_name
     print att_value    
 
+
+    dir_on_cosmos = entity_id + '_' + entity_type
+    name_file = dir_on_cosmos + ".txt"
+    name_file_ckan = dir_on_cosmos + ".csv"
+    name_table_hive = 'gioakbombaci_' + dir_on_cosmos
+
     #controllo se e' la prima sottoscrizione
     check = sub_id in list_sub_id
+    #pdb.set_trace()
     if (check == True):
 	#il sub_id e' nel dizionario, non e' la prima sottoscrizione, tabella gia' creata
 	created_table = 'yes'
@@ -160,26 +170,47 @@ def record():
 	#e' la prima sottoscrizione
 	created_table = 'no'
 	list_sub_id[sub_id] = timestamp
-    dir_on_cosmos = entity_id + '_' + entity_type
-    name_file = dir_on_cosmos + ".txt"
-    name_table_hive = 'gioakbombaci_' + dir_on_cosmos
+        #creo l'intestazione per il file csv
+	create_header = "echo timestamp," + att_type + " >> " + name_file_ckan
+	os.system(create_header)
 
     create_file = "echo " + timestamp + "," + att_value + " >> " + name_file
+    create_file_ckan = "echo " + timestamp + "," + att_value + " >> " + name_file_ckan
 
     send_file_step1 = 'curl -i -X PUT "http://cosmos.lab.fi-ware.org:14000/webhdfs/v1/user/gioakbombaci/observations/' + dir_on_cosmos + '/' + name_file + '?op=CREATE&user.name=gioakbombaci"'
     send_file_step2 =  'curl -i -X PUT -T ' + name_file + ' --header "content-type: application/octet-stream" "http://cosmos.lab.fi-ware.org:14000/webhdfs/v1/user/gioakbombaci/observations/' + dir_on_cosmos + '/' + name_file + '?op=CREATE&user.name=gioakbombaci&data=true"'
     os.system(create_file)
+    os.system(create_file_ckan)
+
     if (created_table == 'no'):
 	# se e' la prima sottoscrizione
 	# -1- creo la dir
 	# -2- invio il file (new or append)
 	# -3- creo la tabella
+
+	#ckan
+	# -1- creo il file
+	# -2- salvo il resource id che mi server per l'aggiornamento del file alla successiva sottoscrizione
+	
 	created_table = 'yes'
 	
+	create_file_ckan = "curl -H'Authorization: 30f4d771-ef48-4050-a35b-de965247f8aa' 'https://data.lab.fiware.org/api/action/resource_create' --form upload=@" + name_file_ckan + " --form package_id=provadataset --form name=" + name_file_ckan + " --form format=csv"
+	
+	out_file = timestamp + ".out"
+	out_curl = create_file_ckan + " > " + out_file
+	os.system(out_curl)
+	output = ""
+	with open(out_file, "r") as out_file_curl:
+		output=out_file_curl.read().replace('\n', '')
+        response_ckan_create = json.loads(output)
+        resource_id = response_ckan_create['result']['id']
+	list_resource_id[sub_id] = resource_id
+	print resource_id
+
     	create_dir = 'curl -i -X PUT "http://cosmos.lab.fi-ware.org:14000/webhdfs/v1/user/gioakbombaci/observations/' + dir_on_cosmos + '?op=MKDIRS&user.name=gioakbombaci"'
 	
+	#inizio codice hive
 	os.system(create_dir)
-	os.system(create_file)
 	os.system(send_file_step1)
 	os.system(send_file_step2)
 
@@ -206,6 +237,14 @@ def record():
 	os.system(send_file_step1)
 	os.system(send_file_step2)
 
+	#ckan
+	#ricarico il file
+	#os.system(upload_file_ckan)
+	#pdb.set_trace()
+	id_to_change = list_resource_id[sub_id]
+	print id_to_change
+	update_ckan = "curl -H'Authorization: 30f4d771-ef48-4050-a35b-de965247f8aa' 'https://data.lab.fiware.org/api/action/resource_update' --form upload=@" + name_file_ckan+ " --form name="+ name_file_ckan + " --form id=" + id_to_change + " --form format=csv"
+	os.system(update_ckan)
     # Separator
     s += '=======================================\n'
 
